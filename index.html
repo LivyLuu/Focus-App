@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FocusFlow | Sweet Productivity</title>
+    <title>Focus Time! | Sweet Productivity</title>
     <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Load React, ReactDOM, and Babel for in-browser JSX compilation -->
@@ -18,6 +18,10 @@
         .shadow-custom { box-shadow: 0 10px 30px -10px rgba(244, 114, 186, 0.5); }
         .dragging { opacity: 0.5; background-color: #FEE7F2; }
         .drag-over { border-top: 4px solid #F472B6; }
+        /* Custom scrollbar for notes area */
+        .notes-scroll::-webkit-scrollbar { width: 4px; }
+        .notes-scroll::-webkit-scrollbar-track { background: transparent; }
+        .notes-scroll::-webkit-scrollbar-thumb { background: #FDE2F3; border-radius: 10px; }
     </style>
 </head>
 <body class="bg-[#FEE7F2]">
@@ -50,6 +54,11 @@
             
             const [newTaskName, setNewTaskName] = useState('');
             const [newTaskPriority, setNewTaskPriority] = useState('Medium');
+
+            // Side Quests State
+            const [sideQuests, setSideQuests] = useState(['Clean desk', 'Paint nails', 'Water plants']);
+            const [isSideQuestsOpen, setIsSideQuestsOpen] = useState(false);
+            const [newQuest, setNewQuest] = useState('');
             
             const dragItem = useRef();
             const dragOverItem = useRef();
@@ -95,6 +104,22 @@
                 if (!newTaskName.trim()) return;
                 setTasks([...tasks, { id: Date.now(), name: newTaskName, priority: newTaskPriority, target: 1, completed: 0, status: 'Pending' }]);
                 setNewTaskName('');
+            };
+
+            const handleKeyDown = (e) => {
+                if (e.key === 'Enter') {
+                    addTask();
+                }
+            };
+
+            const addQuest = () => {
+                if (!newQuest.trim()) return;
+                setSideQuests([...sideQuests, newQuest]);
+                setNewQuest('');
+            };
+
+            const removeQuest = (index) => {
+                setSideQuests(sideQuests.filter((_, i) => i !== index));
             };
 
             const deleteTask = (id) => {
@@ -158,7 +183,7 @@
                         <aside className="w-full md:w-72 space-y-6">
                             <div className="bg-white/80 backdrop-blur-md p-6 rounded-[2rem] shadow-xl border border-white/50">
                                 <h1 style={{ color: colors.text }} className="text-2xl font-black flex items-center gap-2 mb-8">
-                                    <span className="text-3xl">☁️</span> FocusFlow
+                                    <span className="text-3xl">☁️</span> Focus Time!
                                 </h1>
                                 <nav className="space-y-3">
                                     <button onClick={() => setView('tracker')} className={`w-full flex items-center gap-3 px-5 py-4 rounded-2xl transition-all ${view === 'tracker' ? 'bg-[#F472B6] text-white shadow-lg' : 'text-rose-400 hover:bg-rose-50'}`}>
@@ -173,15 +198,14 @@
                             <div className="bg-white p-3 rounded-[2rem] shadow-xl border-4 border-white overflow-hidden">
                                 <div className="aspect-video w-full rounded-2xl overflow-hidden shadow-inner bg-slate-100">
                                     <iframe 
-  width="100%" 
-  height="100%" 
-  src="https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1"
-  title="Lofi Music"
-  frameborder="0"
-  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-  allowfullscreen
-></iframe>
-
+                                        width="100%" 
+                                        height="100%" 
+                                        src="https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1&origin=https://localhost" 
+                                        title="Lofi Music" 
+                                        frameBorder="0" 
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                        allowFullScreen>
+                                    </iframe>
                                 </div>
                                 <div className="mt-3 px-2 text-center">
                                     <p style={{ color: colors.text }} className="font-bold text-xs">Now Playing: Lofi Beats 🎵</p>
@@ -189,8 +213,49 @@
                                 </div>
                             </div>
 
-                            <div className="bg-white/50 p-4 rounded-[1.5rem] text-center">
-                                <p className="text-[10px] text-rose-300 uppercase tracking-widest font-bold">Drag tasks to reorder</p>
+                            {/* Side Quests Section */}
+                            <div className="bg-white/50 rounded-[2rem] shadow-sm overflow-hidden border border-white/60 transition-all">
+                                <button 
+                                    onClick={() => setIsSideQuestsOpen(!isSideQuestsOpen)}
+                                    className="w-full p-5 flex items-center justify-between hover:bg-white/30 transition-colors"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <Icon name="sparkles" size={18} className="text-[#F472B6]" />
+                                        <span className="text-[11px] text-rose-400 uppercase tracking-widest font-black">Side Quests</span>
+                                    </div>
+                                    <Icon name={isSideQuestsOpen ? "chevron-up" : "chevron-down"} size={16} className="text-rose-300" />
+                                </button>
+                                
+                                {isSideQuestsOpen && (
+                                    <div className="px-5 pb-5 space-y-4 animate-in fade-in slide-in-from-top-2">
+                                        <div className="max-h-40 overflow-y-auto notes-scroll space-y-2">
+                                            {sideQuests.map((quest, idx) => (
+                                                <div key={idx} className="flex items-center justify-between bg-white/40 p-2 px-3 rounded-xl text-xs group">
+                                                    <span className="text-rose-500 font-medium truncate pr-2">{quest}</span>
+                                                    <button onClick={() => removeQuest(idx)} className="opacity-0 group-hover:opacity-100 text-rose-300 hover:text-rose-500 transition-all">
+                                                        <Icon name="x" size={14} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            {sideQuests.length === 0 && (
+                                                <p className="text-[10px] text-rose-300 italic text-center py-2">No passive tasks yet...</p>
+                                            )}
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <input 
+                                                type="text" 
+                                                placeholder="New quest..." 
+                                                value={newQuest}
+                                                onChange={(e) => setNewQuest(e.target.value)}
+                                                onKeyDown={(e) => e.key === 'Enter' && addQuest()}
+                                                className="flex-1 bg-white/60 border-none text-xs p-2 rounded-lg focus:ring-1 focus:ring-rose-200 outline-none text-rose-600 placeholder:text-rose-200"
+                                            />
+                                            <button onClick={addQuest} className="p-2 bg-[#F472B6] text-white rounded-lg hover:bg-[#DB2777] transition-all">
+                                                <Icon name="plus" size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </aside>
 
@@ -217,10 +282,17 @@
 
                                     <div className="bg-white rounded-[2.5rem] shadow-xl overflow-hidden">
                                         <div className="p-8 border-b border-rose-50">
-                                            <h3 style={{ color: colors.text }} className="font-black text-xl">✨ Active Intentions</h3>
+                                            <h3 style={{ color: colors.text }} className="font-black text-xl">✨ Tasks</h3>
                                         </div>
                                         <div className="p-8 bg-[#FFF0F5]/30 flex flex-wrap gap-4">
-                                            <input type="text" placeholder="What's next?" value={newTaskName} onChange={(e) => setNewTaskName(e.target.value)} className="flex-1 min-w-[200px] px-6 py-4 rounded-2xl border-2 border-rose-100 focus:outline-none focus:border-[#F472B6]" />
+                                            <input 
+                                                type="text" 
+                                                placeholder="What's next?" 
+                                                value={newTaskName} 
+                                                onChange={(e) => setNewTaskName(e.target.value)} 
+                                                onKeyDown={handleKeyDown}
+                                                className="flex-1 min-w-[200px] px-6 py-4 rounded-2xl border-2 border-rose-100 focus:outline-none focus:border-[#F472B6]" 
+                                            />
                                             <select 
                                                 value={newTaskPriority} 
                                                 onChange={(e) => setNewTaskPriority(e.target.value)}
@@ -314,7 +386,7 @@
                                             {completedTasks.map((task) => (
                                                 <div key={task.id} className="flex items-center justify-between p-4 bg-emerald-50/30 rounded-2xl border border-emerald-100/50">
                                                     <div className="flex items-center gap-4">
-                                                        <button 
+                                                        <button
                                                             onClick={() => toggleTaskStatus(task.id)} 
                                                             className="text-emerald-400"
                                                         >
@@ -362,3 +434,6 @@
     </script>
 </body>
 </html>
+</body>
+</html>
+
