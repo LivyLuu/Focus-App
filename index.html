@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Focus Time! | Sweet Productivity</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2003/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>☁️</text></svg>">
+    
     <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Load React, ReactDOM, and Babel for in-browser JSX compilation -->
@@ -16,12 +18,28 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
         body { font-family: 'Inter', sans-serif; }
         .shadow-custom { box-shadow: 0 10px 30px -10px rgba(244, 114, 186, 0.5); }
-        .dragging { opacity: 0.5; background-color: #FEE7F2; }
+        .dragging { opacity: 0.5; background-color: #FEE7F2 !important; }
         .drag-over { border-top: 4px solid #F472B6; }
-        /* Custom scrollbar for notes area */
+        
         .notes-scroll::-webkit-scrollbar { width: 4px; }
         .notes-scroll::-webkit-scrollbar-track { background: transparent; }
         .notes-scroll::-webkit-scrollbar-thumb { background: #FDE2F3; border-radius: 10px; }
+        
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+        .alarm-active { animation: pulse-ring 1.5s infinite; }
+
+        .in-progress-glow {
+            box-shadow: 0 0 15px rgba(219, 39, 119, 0.3);
+            border: 1px solid rgba(219, 39, 119, 0.4) !important;
+            background-color: #FFF5F9 !important;
+        }
+
+        .text-timer-pink { color: #DB2777; }
+        .bg-timer-pink { background-color: #DB2777; }
+        .border-timer-pink { border-color: #DB2777; }
     </style>
 </head>
 <body class="bg-[#FEE7F2]">
@@ -35,15 +53,13 @@
                 if (window.lucide) {
                     window.lucide.createIcons();
                 }
-            }, [name]);
+            }, [name, className]);
             return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
         };
 
         const App = () => {
-            const [tasks, setTasks] = useState([
-                { id: 1, name: 'Finish project report', priority: 'High', target: 4, completed: 1, status: 'Pending' },
-                { id: 2, name: 'Email client updates', priority: 'Medium', target: 2, completed: 2, status: 'Done' },
-                { id: 3, name: 'Review documentation', priority: 'Low', target: 3, completed: 0, status: 'Pending' },
+            const [sections, setSections] = useState([
+                { id: 'sec-1', title: '✨ Tasks', tasks: [] }
             ]);
             
             const [activeTaskId, setActiveTaskId] = useState(null);
@@ -51,43 +67,79 @@
             const [timeLeft, setTimeLeft] = useState(25 * 60);
             const [isActive, setIsActive] = useState(false);
             const [view, setView] = useState('tracker'); 
+            const [isAlarmPlaying, setIsAlarmPlaying] = useState(false);
             
-            const [newTaskName, setNewTaskName] = useState('');
-            const [newTaskPriority, setNewTaskPriority] = useState('Medium');
-
-            // Side Quests State
-            const [sideQuests, setSideQuests] = useState(['Clean desk', 'Paint nails', 'Water plants']);
+            const [isEditingTitleId, setIsEditingTitleId] = useState(null);
+            const [sideQuests, setSideQuests] = useState([]);
             const [isSideQuestsOpen, setIsSideQuestsOpen] = useState(false);
             const [newQuest, setNewQuest] = useState('');
+            const [editingQuestId, setEditingQuestId] = useState(null);
+            const [editingTaskId, setEditingTaskId] = useState(null);
             
-            const dragItem = useRef();
-            const dragOverItem = useRef();
+            // Ref to track click timers to distinguish single vs double click
+            const clickTimer = useRef(null);
+
+            const audioContextRef = useRef(null);
+            const alarmIntervalRef = useRef(null);
 
             const colors = {
                 bg: '#FEE7F2',
                 card: '#FFF0F5',
                 accent: '#F472B6',
-                text: '#DB2777'
+                timerPink: '#DB2777' 
+            };
+
+            const playChime = () => {
+                if (!audioContextRef.current) {
+                    audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                const ctx = audioContextRef.current;
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, ctx.currentTime); 
+                osc.frequency.exponentialRampToValueToTime(440, ctx.currentTime + 0.5);
+                gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                gain.gain.exponentialRampToValueToTime(0.01, ctx.currentTime + 0.5);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.5);
+            };
+
+            const startAlarm = () => {
+                setIsAlarmPlaying(true);
+                playChime();
+                alarmIntervalRef.current = setInterval(playChime, 1000);
+            };
+
+            const stopAlarm = () => {
+                setIsAlarmPlaying(false);
+                if (alarmIntervalRef.current) {
+                    clearInterval(alarmIntervalRef.current);
+                    alarmIntervalRef.current = null;
+                }
             };
 
             useEffect(() => {
                 let interval = null;
                 if (isActive && timeLeft > 0) {
                     interval = setInterval(() => { setTimeLeft((prev) => prev - 1); }, 1000);
-                } else if (timeLeft === 0) {
+                } else if (timeLeft === 0 && isActive) {
                     setIsActive(false);
-                    const times = { focus: 25 * 60, shortBreak: 5 * 60, longBreak: 15 * 60 };
+                    startAlarm();
                     if (timerMode === 'focus' && activeTaskId) {
-                        setTasks(prev => prev.map(t => t.id === activeTaskId ? { ...t, completed: t.completed + 1 } : t));
+                        setSections(prev => prev.map(section => ({
+                            ...section,
+                            tasks: section.tasks.map(t => t.id === activeTaskId ? { ...t, completed: t.completed + 1 } : t)
+                        })));
                     }
-                    const nextMode = timerMode === 'focus' ? 'shortBreak' : 'focus';
-                    setTimerMode(nextMode);
-                    setTimeLeft(times[nextMode]);
                 }
                 return () => clearInterval(interval);
             }, [isActive, timeLeft, timerMode, activeTaskId]);
 
             const resetTimer = (mode) => {
+                stopAlarm();
                 const times = { focus: 25 * 60, shortBreak: 5 * 60, longBreak: 15 * 60 };
                 setTimerMode(mode);
                 setTimeLeft(times[mode]);
@@ -100,325 +152,385 @@
                 return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
             };
 
-            const addTask = () => {
-                if (!newTaskName.trim()) return;
-                setTasks([...tasks, { id: Date.now(), name: newTaskName, priority: newTaskPriority, target: 1, completed: 0, status: 'Pending' }]);
-                setNewTaskName('');
+            const addNewSection = () => {
+                setSections([...sections, { id: `sec-${Date.now()}`, title: '✨ New Section', tasks: [] }]);
             };
 
-            const handleKeyDown = (e) => {
-                if (e.key === 'Enter') {
-                    addTask();
+            const deleteSection = (sectionId) => {
+                if (sections.length <= 1) return;
+                setSections(sections.filter(s => s.id !== sectionId));
+            };
+
+            const addTaskToSection = (sectionId, name, priority) => {
+                if (!name.trim()) return;
+                setSections(sections.map(sec => {
+                    if (sec.id === sectionId) {
+                        return {
+                            ...sec,
+                            tasks: [...sec.tasks, { id: Date.now(), name, priority, target: 1, completed: 0, status: 'Pending' }]
+                        };
+                    }
+                    return sec;
+                }));
+            };
+
+            const updateSectionTitle = (sectionId, newTitle) => {
+                setSections(sections.map(sec => sec.id === sectionId ? { ...sec, title: newTitle } : sec));
+            };
+
+            const updateTaskInSections = (taskId, updater) => {
+                setSections(sections.map(sec => ({
+                    ...sec,
+                    tasks: sec.tasks.map(t => t.id === taskId ? { ...t, ...updater(t) } : t)
+                })));
+            };
+
+            const deleteTaskFromSections = (taskId) => {
+                setSections(sections.map(sec => ({
+                    ...sec,
+                    tasks: sec.tasks.filter(t => t.id !== taskId)
+                })));
+                if (activeTaskId === taskId) setActiveTaskId(null);
+            };
+
+            const toggleTaskActivation = (id) => {
+                let foundTask = null;
+                sections.forEach(s => {
+                    const t = s.tasks.find(tk => tk.id === id);
+                    if (t) foundTask = t;
+                });
+                if (!foundTask) return;
+
+                const isCurrentlyActive = foundTask.status === 'In Progress';
+                setSections(sections.map(sec => ({
+                    ...sec,
+                    tasks: sec.tasks.map(t => {
+                        if (t.id === id) return { ...t, status: isCurrentlyActive ? 'Pending' : 'In Progress' };
+                        if (t.status === 'In Progress') return { ...t, status: 'Pending' };
+                        return t;
+                    })
+                })));
+
+                if (!isCurrentlyActive) setActiveTaskId(id);
+                else if (activeTaskId === id) setActiveTaskId(null);
+            };
+
+            const handleTaskClick = (taskId) => {
+                // Wait to see if it's a double click
+                if (clickTimer.current) {
+                    clearTimeout(clickTimer.current);
+                    clickTimer.current = null;
+                    // Double click occurred - open editor
+                    setEditingTaskId(taskId);
+                } else {
+                    clickTimer.current = setTimeout(() => {
+                        // Single click occurred - toggle working status
+                        toggleTaskActivation(taskId);
+                        clickTimer.current = null;
+                    }, 250); 
                 }
             };
 
             const addQuest = () => {
                 if (!newQuest.trim()) return;
-                setSideQuests([...sideQuests, newQuest]);
+                setSideQuests([...sideQuests, { id: Date.now().toString(), text: newQuest }]);
                 setNewQuest('');
             };
 
-            const removeQuest = (index) => {
-                setSideQuests(sideQuests.filter((_, i) => i !== index));
-            };
-
-            const deleteTask = (id) => {
-                setTasks(tasks.filter(task => task.id !== id));
-                if (activeTaskId === id) setActiveTaskId(null);
-            };
-
-            const toggleTaskStatus = (id) => {
-                setTasks(tasks.map(t => {
-                    if (t.id === id) {
-                        const newStatus = t.status === 'Done' ? 'Pending' : 'Done';
-                        if (newStatus === 'Done' && activeTaskId === id) setActiveTaskId(null);
-                        return { ...t, status: newStatus };
-                    }
-                    return t;
-                }));
-            };
-
-            // Drag and Drop Logic
-            const dragStart = (e, position) => {
-                dragItem.current = position;
-                e.currentTarget.classList.add('dragging');
-            };
-
-            const dragEnter = (e, position) => {
-                dragOverItem.current = position;
-                e.currentTarget.classList.add('drag-over');
-            };
-
-            const dragLeave = (e) => {
-                e.currentTarget.classList.remove('drag-over');
-            };
-
-            const drop = (e) => {
-                e.currentTarget.classList.remove('dragging');
-                const copyListItems = [...tasks];
-                const dragItemContent = copyListItems[dragItem.current];
-                copyListItems.splice(dragItem.current, 1);
-                copyListItems.splice(dragOverItem.current, 0, dragItemContent);
-                dragItem.current = null;
-                dragOverItem.current = null;
-                setTasks(copyListItems);
-                document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-            };
-
-            // Filtered Lists
-            const pendingTasks = tasks.filter(t => t.status !== 'Done');
-            const completedTasks = tasks.filter(t => t.status === 'Done');
-
             const stats = useMemo(() => {
-                const total = tasks.length;
-                const done = completedTasks.length;
-                const totalPoms = tasks.reduce((acc, t) => acc + t.completed, 0);
-                return { total, done, totalPoms };
-            }, [tasks, completedTasks]);
+                const allTasks = sections.flatMap(s => s.tasks);
+                return { 
+                    total: allTasks.length, 
+                    done: allTasks.filter(t => t.status === 'Done').length, 
+                    totalPoms: allTasks.reduce((acc, t) => acc + t.completed, 0),
+                    allTasks 
+                };
+            }, [sections]);
+
+            const TaskSection = ({ section }) => {
+                const [localNewTaskName, setLocalNewTaskName] = useState('');
+                const [localNewTaskPriority, setLocalNewTaskPriority] = useState('Medium');
+                const pendingTasks = section.tasks.filter(t => t.status !== 'Done');
+
+                return (
+                    <div className="bg-white rounded-[2.5rem] shadow-xl overflow-hidden mb-8">
+                        <div className="p-8 border-b border-rose-50 flex justify-between items-center">
+                            <div className="flex-1">
+                                {isEditingTitleId === section.id ? (
+                                    <input
+                                        autoFocus
+                                        type="text"
+                                        className="font-black text-xl bg-transparent border-none outline-none focus:ring-0 p-0 w-full"
+                                        style={{ color: colors.timerPink }}
+                                        value={section.title}
+                                        onChange={(e) => updateSectionTitle(section.id, e.target.value)}
+                                        onBlur={() => setIsEditingTitleId(null)}
+                                        onKeyDown={(e) => e.key === 'Enter' && setIsEditingTitleId(null)}
+                                    />
+                                ) : (
+                                    <h3 
+                                        style={{ color: colors.timerPink }} 
+                                        className="font-black text-xl cursor-text select-none"
+                                        onDoubleClick={() => setIsEditingTitleId(section.id)}
+                                        title="Double click to rename"
+                                    >
+                                        {section.title}
+                                    </h3>
+                                )}
+                            </div>
+                            {sections.length > 1 && (
+                                <button onClick={() => deleteSection(section.id)} className="text-rose-200 hover:text-rose-400 transition-colors">
+                                    <Icon name="trash-2" size={18} />
+                                </button>
+                            )}
+                        </div>
+                        <div className="p-8 bg-[#FFF0F5]/30 flex flex-wrap gap-4">
+                            <input 
+                                type="text" 
+                                placeholder="What's next?" 
+                                value={localNewTaskName} 
+                                onChange={(e) => setLocalNewTaskName(e.target.value)} 
+                                onKeyDown={(e) => e.key === 'Enter' && (addTaskToSection(section.id, localNewTaskName, localNewTaskPriority), setLocalNewTaskName(''))}
+                                className="flex-1 min-w-[200px] px-6 py-4 rounded-2xl border-2 border-rose-100 focus:outline-none focus:border-[#DB2777]" 
+                            />
+                            <select 
+                                value={localNewTaskPriority} 
+                                onChange={(e) => setLocalNewTaskPriority(e.target.value)}
+                                className="px-4 py-4 rounded-2xl border-2 border-rose-100 bg-white font-bold text-rose-400 focus:border-[#DB2777] focus:outline-none"
+                            >
+                                <option>High</option>
+                                <option>Medium</option>
+                                <option>Low</option>
+                            </select>
+                            <button 
+                                onClick={() => { addTaskToSection(section.id, localNewTaskName, localNewTaskPriority); setLocalNewTaskName(''); }} 
+                                className="bg-slate-800 text-white px-8 py-4 rounded-2xl hover:bg-slate-900 transition-all font-bold"
+                            >
+                                Add
+                            </button>
+                        </div>
+                        <div className="p-4 space-y-2">
+                            {pendingTasks.map((task) => (
+                                <div 
+                                    key={task.id} 
+                                    className={`group flex items-center justify-between p-4 rounded-2xl transition-all border cursor-pointer 
+                                        ${task.priority === 'High' ? 'bg-[#FFF0F6] border-[#DB2777]' : 'bg-white border-transparent hover:bg-rose-50/50 hover:border-rose-100'}
+                                        ${task.status === 'In Progress' ? 'in-progress-glow border-[#DB2777]' : ''}`}
+                                >
+                                    <div className="flex items-center gap-4 flex-1">
+                                        <button 
+                                            onClick={(e) => { 
+                                                e.stopPropagation(); 
+                                                updateTaskInSections(task.id, (t) => {
+                                                    const next = t.status === 'Done' ? 'Pending' : 'Done';
+                                                    if (next === 'Done' && activeTaskId === task.id) setActiveTaskId(null);
+                                                    return { status: next };
+                                                });
+                                            }} 
+                                            className={`text-rose-200 hover:text-emerald-400 transition-colors ${task.priority === 'High' ? 'text-[#DB2777]' : ''}`}
+                                        >
+                                            <Icon name="circle" />
+                                        </button>
+                                        
+                                        <div 
+                                            className="flex flex-col flex-1 select-none"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleTaskClick(task.id);
+                                            }}
+                                        >
+                                            {editingTaskId === task.id ? (
+                                                <input
+                                                    autoFocus
+                                                    type="text"
+                                                    className="font-bold text-[#DB2777] bg-transparent border-none outline-none focus:ring-0 p-0 w-full"
+                                                    value={task.name}
+                                                    onChange={(e) => updateTaskInSections(task.id, () => ({ name: e.target.value }))}
+                                                    onBlur={() => setEditingTaskId(null)}
+                                                    onKeyDown={(e) => e.key === 'Enter' && setEditingTaskId(null)}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                />
+                                            ) : (
+                                                <span className={`font-bold block ${task.status === 'In Progress' || task.priority === 'High' ? 'text-[#DB2777]' : ''}`}>
+                                                    {task.name}
+                                                </span>
+                                            )}
+                                            <div className="flex items-center gap-2 mt-1">
+                                                {task.status === 'In Progress' && (
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className="text-[9px] px-1.5 py-0.5 rounded-md uppercase font-black tracking-widest bg-[#DB2777] text-white shadow-sm">Working</span>
+                                                        <img src="https://behalacollege.in/display_board/assets/images/ajax-spinner.gif" alt="In Progress" className="w-3 h-3 object-contain opacity-70" />
+                                                    </div>
+                                                )}
+                                                <div className="flex gap-1.5">
+                                                    {[...Array(task.target || 1)].map((_, i) => (
+                                                        <div key={i} className={`w-3 h-3 rounded-full ${i < task.completed ? 'bg-[#DB2777]' : (task.priority === 'High' ? 'bg-[#FBCFE8]' : 'bg-rose-100')}`} />
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <button 
+                                            onClick={(e) => { 
+                                                e.stopPropagation(); 
+                                                updateTaskInSections(task.id, (t) => {
+                                                    const priorities = ['Low', 'Medium', 'High'];
+                                                    const nextIndex = (priorities.indexOf(t.priority) + 1) % priorities.length;
+                                                    return { priority: priorities[nextIndex] };
+                                                });
+                                            }}
+                                            className={`w-5 h-5 rounded-full border-2 transition-all shadow-sm
+                                                ${task.priority === 'High' ? 'bg-[#DB2777] border-[#9D174D]' : 
+                                                  task.priority === 'Medium' ? 'bg-amber-400 border-amber-500' : 
+                                                  'bg-slate-300 border-slate-400'}`}
+                                        />
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); deleteTaskFromSections(task.id); }}
+                                            className={`p-2 rounded-xl transition-all ${task.priority === 'High' ? 'text-[#DB2777] hover:text-red-700 hover:bg-rose-200/50' : 'opacity-0 group-hover:opacity-100 text-rose-200 hover:text-red-400 hover:bg-red-50'}`}
+                                        >
+                                            <Icon name="trash-2" size={18} />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            };
 
             return (
                 <div className="min-h-screen p-4 md:p-8 text-slate-700">
                     <div className="max-w-6xl mx-auto flex flex-col md:flex-row gap-8">
-                        {/* Sidebar */}
                         <aside className="w-full md:w-72 space-y-6">
                             <div className="bg-white/80 backdrop-blur-md p-6 rounded-[2rem] shadow-xl border border-white/50">
-                                <h1 style={{ color: colors.text }} className="text-2xl font-black flex items-center gap-2 mb-8">
+                                <h1 style={{ color: colors.timerPink }} className="text-2xl font-black flex items-center gap-2 mb-8">
                                     <span className="text-3xl">☁️</span> Focus Time!
                                 </h1>
                                 <nav className="space-y-3">
-                                    <button onClick={() => setView('tracker')} className={`w-full flex items-center gap-3 px-5 py-4 rounded-2xl transition-all ${view === 'tracker' ? 'bg-[#F472B6] text-white shadow-lg' : 'text-rose-400 hover:bg-rose-50'}`}>
+                                    <button onClick={() => setView('tracker')} className={`w-full flex items-center gap-3 px-5 py-4 rounded-2xl transition-all ${view === 'tracker' ? 'bg-[#DB2777] text-white shadow-lg' : 'text-rose-400 hover:bg-rose-50'}`}>
                                         <Icon name="list-todo" /> <span className="font-bold">Task Tracker</span>
                                     </button>
-                                    <button onClick={() => setView('dashboard')} className={`w-full flex items-center gap-3 px-5 py-4 rounded-2xl transition-all ${view === 'dashboard' ? 'bg-[#F472B6] text-white shadow-lg' : 'text-rose-400 hover:bg-rose-50'}`}>
+                                    <button onClick={() => setView('dashboard')} className={`w-full flex items-center gap-3 px-5 py-4 rounded-2xl transition-all ${view === 'dashboard' ? 'bg-[#DB2777] text-white shadow-lg' : 'text-rose-400 hover:bg-rose-50'}`}>
                                         <Icon name="bar-chart-3" /> <span className="font-bold">Dashboard</span>
                                     </button>
                                 </nav>
                             </div>
-                            
                             <div className="bg-white p-3 rounded-[2rem] shadow-xl border-4 border-white overflow-hidden">
                                 <div className="aspect-video w-full rounded-2xl overflow-hidden shadow-inner bg-slate-100">
-                                    <iframe 
-                                        width="100%" 
-                                        height="100%" 
-                                        src="https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1&origin=https://localhost" 
-                                        title="Lofi Music" 
-                                        frameBorder="0" 
-                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                                        allowFullScreen>
-                                    </iframe>
+                                    <iframe width="100%" height="100%" src="https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1&origin=https://localhost" title="Lofi Music" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
                                 </div>
                                 <div className="mt-3 px-2 text-center">
-                                    <p style={{ color: colors.text }} className="font-bold text-xs">Now Playing: Lofi Beats 🎵</p>
+                                    <p style={{ color: colors.timerPink }} className="font-bold text-xs">Now Playing: Lofi Beats 🎵</p>
                                     <p className="text-[10px] text-rose-300 uppercase tracking-widest font-bold mt-1">Focus Mode: ON</p>
                                 </div>
                             </div>
-
-                            {/* Side Quests Section */}
                             <div className="bg-white/50 rounded-[2rem] shadow-sm overflow-hidden border border-white/60 transition-all">
-                                <button 
-                                    onClick={() => setIsSideQuestsOpen(!isSideQuestsOpen)}
-                                    className="w-full p-5 flex items-center justify-between hover:bg-white/30 transition-colors"
-                                >
+                                <button onClick={() => setIsSideQuestsOpen(!isSideQuestsOpen)} className="w-full p-5 flex items-center justify-between hover:bg-white/30 transition-colors">
                                     <div className="flex items-center gap-3">
-                                        <Icon name="sparkles" size={18} className="text-[#F472B6]" />
+                                        <Icon name="sparkles" size={18} className="text-[#DB2777]" />
                                         <span className="text-[11px] text-rose-400 uppercase tracking-widest font-black">Side Quests</span>
                                     </div>
                                     <Icon name={isSideQuestsOpen ? "chevron-up" : "chevron-down"} size={16} className="text-rose-300" />
                                 </button>
-                                
                                 {isSideQuestsOpen && (
                                     <div className="px-5 pb-5 space-y-4 animate-in fade-in slide-in-from-top-2">
-                                        <div className="max-h-40 overflow-y-auto notes-scroll space-y-2">
-                                            {sideQuests.map((quest, idx) => (
-                                                <div key={idx} className="flex items-center justify-between bg-white/40 p-2 px-3 rounded-xl text-xs group">
-                                                    <span className="text-rose-500 font-medium truncate pr-2">{quest}</span>
-                                                    <button onClick={() => removeQuest(idx)} className="opacity-0 group-hover:opacity-100 text-rose-300 hover:text-rose-500 transition-all">
-                                                        <Icon name="x" size={14} />
-                                                    </button>
+                                        <div className="max-h-64 overflow-y-auto notes-scroll space-y-2">
+                                            {sideQuests.map((quest) => (
+                                                <div key={quest.id} className="flex items-start justify-between bg-white/40 p-3 rounded-xl text-xs group hover:bg-white/60 transition-colors">
+                                                    <div className="flex-1 pr-2">
+                                                        {editingQuestId === quest.id ? (
+                                                            <textarea autoFocus className="w-full bg-transparent border-none outline-none text-[#DB2777] font-medium resize-none p-0" value={quest.text} onChange={(e) => setSideQuests(sideQuests.map(q => q.id === quest.id ? {...q, text: e.target.value} : q))} onBlur={() => setEditingQuestId(null)} onKeyDown={(e) => e.key === 'Enter' && setEditingQuestId(null)} rows={2} />
+                                                        ) : (
+                                                            <span onDoubleClick={() => setEditingQuestId(quest.id)} className="text-rose-500 font-medium break-words whitespace-pre-wrap block">{quest.text}</span>
+                                                        )}
+                                                    </div>
+                                                    <button onClick={() => setSideQuests(sideQuests.filter(q => q.id !== quest.id))} className="opacity-0 group-hover:opacity-100 text-rose-300 hover:text-rose-500 transition-all flex-shrink-0 pt-0.5"><Icon name="x" size={14} /></button>
                                                 </div>
                                             ))}
-                                            {sideQuests.length === 0 && (
-                                                <p className="text-[10px] text-rose-300 italic text-center py-2">No passive tasks yet...</p>
-                                            )}
                                         </div>
                                         <div className="flex gap-2">
-                                            <input 
-                                                type="text" 
-                                                placeholder="New quest..." 
-                                                value={newQuest}
-                                                onChange={(e) => setNewQuest(e.target.value)}
-                                                onKeyDown={(e) => e.key === 'Enter' && addQuest()}
-                                                className="flex-1 bg-white/60 border-none text-xs p-2 rounded-lg focus:ring-1 focus:ring-rose-200 outline-none text-rose-600 placeholder:text-rose-200"
-                                            />
-                                            <button onClick={addQuest} className="p-2 bg-[#F472B6] text-white rounded-lg hover:bg-[#DB2777] transition-all">
-                                                <Icon name="plus" size={14} />
-                                            </button>
+                                            <input type="text" placeholder="New quest..." value={newQuest} onChange={(e) => setNewQuest(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addQuest()} className="flex-1 bg-white/60 border-none text-xs p-2 rounded-lg outline-none text-rose-600 placeholder:text-rose-200" />
+                                            <button onClick={addQuest} className="p-2 bg-[#DB2777] text-white rounded-lg hover:bg-[#9D174D] transition-all"><Icon name="plus" size={14} /></button>
                                         </div>
                                     </div>
                                 )}
                             </div>
                         </aside>
 
-                        {/* Main */}
                         <main className="flex-1 space-y-6">
                             {view === 'tracker' ? (
                                 <>
-                                    <div className="bg-white p-10 rounded-[3rem] shadow-2xl flex flex-col items-center text-center relative overflow-hidden">
+                                    <div className="bg-white p-10 rounded-[3rem] shadow-2xl flex flex-col items-center text-center relative overflow-hidden mb-12">
                                         <div className="flex gap-2 mb-10 bg-rose-50/50 p-1.5 rounded-full border border-rose-100">
                                             {['focus', 'shortBreak', 'longBreak'].map((m) => (
-                                                <button key={m} onClick={() => resetTimer(m)} className={`px-6 py-2 rounded-full text-sm font-bold transition-all ${timerMode === m ? 'bg-white shadow-md text-[#DB2777]' : 'text-rose-300 hover:text-rose-500'}`}>
-                                                    {m.replace('Break', '')}
-                                                </button>
+                                                <button key={m} onClick={() => resetTimer(m)} className={`px-6 py-2 rounded-full text-sm font-bold transition-all ${timerMode === m ? 'bg-white shadow-md text-[#DB2777]' : 'text-rose-300 hover:text-rose-500'}`}>{m.replace('Break', '')}</button>
                                             ))}
                                         </div>
-                                        <h2 style={{ color: colors.text }} className="text-9xl font-black tracking-tighter tabular-nums mb-10">{formatTime(timeLeft)}</h2>
+                                        <div className="relative mb-10 group">
+                                            {isAlarmPlaying && <div className="absolute inset-0 rounded-full border-8 border-rose-200 alarm-active"></div>}
+                                            <h2 style={{ color: colors.timerPink }} className={`text-9xl font-black tracking-tighter tabular-nums transition-transform ${isAlarmPlaying ? 'scale-110' : ''}`}>{formatTime(timeLeft)}</h2>
+                                        </div>
                                         <div className="flex items-center gap-5">
-                                            <button onClick={() => setIsActive(!isActive)} className="w-48 py-5 rounded-[2rem] flex items-center justify-center gap-3 text-xl font-black transition-all shadow-custom bg-[#F472B6] text-white hover:bg-[#DB2777]">
-                                                {isActive ? 'PAUSE' : 'START'}
-                                            </button>
-                                            <button onClick={() => resetTimer(timerMode)} className="p-5 bg-rose-50 text-rose-300 rounded-[1.5rem] hover:text-[#F472B6] transition-all"><Icon name="rotate-ccw" size={24} /></button>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-white rounded-[2.5rem] shadow-xl overflow-hidden">
-                                        <div className="p-8 border-b border-rose-50">
-                                            <h3 style={{ color: colors.text }} className="font-black text-xl">✨ Tasks</h3>
-                                        </div>
-                                        <div className="p-8 bg-[#FFF0F5]/30 flex flex-wrap gap-4">
-                                            <input 
-                                                type="text" 
-                                                placeholder="What's next?" 
-                                                value={newTaskName} 
-                                                onChange={(e) => setNewTaskName(e.target.value)} 
-                                                onKeyDown={handleKeyDown}
-                                                className="flex-1 min-w-[200px] px-6 py-4 rounded-2xl border-2 border-rose-100 focus:outline-none focus:border-[#F472B6]" 
-                                            />
-                                            <select 
-                                                value={newTaskPriority} 
-                                                onChange={(e) => setNewTaskPriority(e.target.value)}
-                                                className="px-4 py-4 rounded-2xl border-2 border-rose-100 bg-white font-bold text-rose-400"
-                                            >
-                                                <option>High</option>
-                                                <option>Medium</option>
-                                                <option>Low</option>
-                                            </select>
-                                            <button onClick={addTask} className="bg-slate-800 text-white px-8 py-4 rounded-2xl hover:bg-slate-900 transition-all font-bold">Add</button>
-                                        </div>
-                                        <div className="p-4 space-y-2">
-                                            {pendingTasks.map((task, index) => (
-                                                <div 
-                                                    key={task.id} 
-                                                    draggable
-                                                    onDragStart={(e) => dragStart(e, tasks.indexOf(task))}
-                                                    onDragEnter={(e) => dragEnter(e, tasks.indexOf(task))}
-                                                    onDragEnd={drop}
-                                                    onDragLeave={dragLeave}
-                                                    onDragOver={(e) => e.preventDefault()}
-                                                    className="group flex items-center justify-between p-4 bg-white hover:bg-rose-50/50 rounded-2xl transition-all border border-transparent hover:border-rose-100 cursor-grab active:cursor-grabbing"
-                                                >
-                                                    <div className="flex items-center gap-4">
-                                                        <div className="text-rose-100 group-hover:text-rose-300 mr-1">
-                                                            <Icon name="grip-vertical" size={16} />
-                                                        </div>
-                                                        <button 
-                                                            onClick={() => toggleTaskStatus(task.id)} 
-                                                            className="text-rose-200 hover:text-emerald-400 transition-colors"
-                                                        >
-                                                            <Icon name="circle" />
-                                                        </button>
-                                                        <div 
-                                                            className="cursor-pointer"
-                                                            onClick={() => setActiveTaskId(task.id)}
-                                                        >
-                                                            <span className={`font-bold block ${activeTaskId === task.id ? 'text-[#DB2777]' : ''}`}>
-                                                                {task.name}
-                                                            </span>
-                                                            <span className="text-[10px] uppercase font-black tracking-widest text-slate-400">{task.priority} Priority</span>
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex items-center gap-6">
-                                                        <div className="flex gap-1.5">
-                                                            {[...Array(task.target || 1)].map((_, i) => (
-                                                                <div key={i} className={`w-3 h-3 rounded-full ${i < task.completed ? 'bg-[#F472B6]' : 'bg-rose-100'}`} />
-                                                            ))}
-                                                        </div>
-                                                        <button 
-                                                            onClick={() => deleteTask(task.id)}
-                                                            className="opacity-0 group-hover:opacity-100 p-2 text-rose-200 hover:text-red-400 hover:bg-red-50 rounded-xl transition-all"
-                                                        >
-                                                            <Icon name="trash-2" size={18} />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            {pendingTasks.length === 0 && (
-                                                <div className="text-center py-10 text-rose-300 font-medium italic">
-                                                    No active intentions. Add one above or check the Dashboard! ✨
-                                                </div>
+                                            {isAlarmPlaying ? (
+                                                <button onClick={stopAlarm} className="w-64 py-5 rounded-[2rem] flex items-center justify-center gap-3 text-xl font-black transition-all shadow-lg bg-emerald-500 text-white hover:bg-emerald-600 animate-bounce"><Icon name="bell-off" /> STOP ALARM</button>
+                                            ) : (
+                                                <>
+                                                    <button onClick={() => setIsActive(!isActive)} className="w-48 py-5 rounded-[2rem] flex items-center justify-center gap-3 text-xl font-black transition-all shadow-custom bg-[#DB2777] text-white hover:bg-[#9D174D]">{isActive ? 'PAUSE' : 'START'}</button>
+                                                    <button onClick={() => resetTimer(timerMode)} className="p-5 bg-rose-50 text-rose-300 rounded-[1.5rem] hover:text-[#DB2777] transition-all"><Icon name="rotate-ccw" size={24} /></button>
+                                                </>
                                             )}
                                         </div>
                                     </div>
+
+                                    {sections.map(section => (
+                                        <TaskSection key={section.id} section={section} />
+                                    ))}
+
+                                    <button 
+                                        onClick={addNewSection}
+                                        className="w-full p-6 border-2 border-dashed border-rose-200 rounded-[2.5rem] text-rose-300 font-bold flex items-center justify-center gap-3 hover:bg-white/50 hover:border-[#DB2777] hover:text-[#DB2777] transition-all"
+                                    >
+                                        <Icon name="plus-circle" /> Add Section
+                                    </button>
                                 </>
                             ) : (
                                 <div className="space-y-6">
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                         <div className="bg-white p-8 rounded-[2.5rem] shadow-xl text-center border border-white/50">
                                             <p className="text-rose-300 text-xs font-black uppercase tracking-widest mb-2">Poms Completed</p>
-                                            <p style={{ color: colors.text }} className="text-5xl font-black">{stats.totalPoms}</p>
+                                            <p style={{ color: colors.timerPink }} className="text-5xl font-black">{stats.totalPoms}</p>
                                         </div>
                                         <div className="bg-white p-8 rounded-[2.5rem] shadow-xl text-center border border-white/50">
                                             <p className="text-rose-300 text-xs font-black uppercase tracking-widest mb-2">Tasks Done</p>
-                                            <p style={{ color: colors.text }} className="text-5xl font-black">{stats.done}</p>
+                                            <p style={{ color: colors.timerPink }} className="text-5xl font-black">{stats.done}</p>
                                         </div>
                                         <div className="bg-white p-8 rounded-[2.5rem] shadow-xl text-center border border-white/50">
                                             <p className="text-rose-300 text-xs font-black uppercase tracking-widest mb-2">Completion Rate</p>
-                                            <p style={{ color: colors.text }} className="text-5xl font-black">
-                                                {stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : 0}%
-                                            </p>
+                                            <p style={{ color: colors.timerPink }} className="text-5xl font-black">{stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : 0}%</p>
                                         </div>
                                     </div>
-
                                     <div className="bg-white rounded-[2.5rem] shadow-xl overflow-hidden">
                                         <div className="p-8 border-b border-rose-50">
-                                            <h3 style={{ color: colors.text }} className="font-black text-xl">🏆 Completed Today</h3>
+                                            <h3 style={{ color: colors.timerPink }} className="font-black text-xl">🏆 Completed History</h3>
                                         </div>
                                         <div className="p-4 space-y-2">
-                                            {completedTasks.map((task) => (
+                                            {stats.allTasks.filter(t => t.status === 'Done').map((task) => (
                                                 <div key={task.id} className="flex items-center justify-between p-4 bg-emerald-50/30 rounded-2xl border border-emerald-100/50">
                                                     <div className="flex items-center gap-4">
-                                                        <button
-                                                            onClick={() => toggleTaskStatus(task.id)} 
+                                                        <button 
+                                                            onClick={() => updateTaskInSections(task.id, () => ({ status: 'Pending' }))} 
                                                             className="text-emerald-400"
                                                         >
                                                             <Icon name="check-circle-2" />
                                                         </button>
-                                                        <div>
-                                                            <span className="font-bold block line-through text-slate-400">
-                                                                {task.name}
-                                                            </span>
-                                                            <span className="text-[10px] uppercase font-black tracking-widest text-emerald-300">Finished</span>
-                                                        </div>
+                                                        <span className="font-bold block line-through text-slate-400">{task.name}</span>
                                                     </div>
-                                                    <div className="flex items-center gap-6">
-                                                        <div className="flex gap-1.5">
-                                                            {[...Array(task.completed)].map((_, i) => (
-                                                                <div key={i} className="w-3 h-3 rounded-full bg-emerald-300" />
-                                                            ))}
-                                                        </div>
-                                                        <button 
-                                                            onClick={() => deleteTask(task.id)}
-                                                            className="p-2 text-rose-200 hover:text-red-400 hover:bg-red-50 rounded-xl transition-all"
-                                                        >
-                                                            <Icon name="trash-2" size={18} />
-                                                        </button>
-                                                    </div>
+                                                    <button onClick={() => deleteTaskFromSections(task.id)} className="p-2 text-rose-200 hover:text-red-400 rounded-xl transition-all">
+                                                        <Icon name="trash-2" size={18} />
+                                                    </button>
                                                 </div>
                                             ))}
-                                            {completedTasks.length === 0 && (
-                                                <div className="text-center py-10 text-slate-300 font-medium italic">
-                                                    No completed tasks yet. Keep going! 💪
-                                                </div>
-                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -434,6 +546,5 @@
     </script>
 </body>
 </html>
-</body>
-</html>
+
 
