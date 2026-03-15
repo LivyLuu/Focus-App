@@ -439,7 +439,7 @@
             const resetTimer = (mode) => {
                 stopAlarm();
                 setTimerMode(mode);
-                const times = { focus: 1500, shortBreak: 5, longBreak: 900 };
+                const times = { focus: 1500, shortBreak: 300, longBreak: 900 };
                 setTimeLeft(times[mode]); 
                 setIsActive(false);
             };
