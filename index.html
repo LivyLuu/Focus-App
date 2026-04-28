@@ -309,7 +309,51 @@
             const [sections, setSections] = useState([
                 { id: 'sec-1', title: '✨ Tasks', tasks: [] }
             ]);
-            
+            const toggleFullscreen = async () => {
+  try {
+    if (!document.fullscreenElement) {
+      await document.documentElement.requestFullscreen();
+    } else {
+      await document.exitFullscreen();
+    }
+  } catch (err) {
+    console.error('Fullscreen failed:', err);
+  }
+};
+            const playerRef = useRef(null);
+            const [videoVolume, setVideoVolume] = useState(30);
+            const appRef = useRef(null); // Unused, can be removed
+
+useEffect(() => {
+  const tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  document.body.appendChild(tag);
+
+  window.onYouTubeIframeAPIReady = () => {
+    playerRef.current = new window.YT.Player('youtube-player', {
+      videoId: 'jfKfPfyJRdk',
+      playerVars: {
+        autoplay: 1,
+        controls: 1,
+        playsinline: 1
+      },
+      events: {
+        onReady: (event) => {
+          event.target.setVolume(videoVolume);
+          event.target.playVideo();
+        }
+      }
+    });
+  };
+
+  return () => { if (playerRef.current?.destroy) playerRef.current.destroy(); };
+}, []);
+
+useEffect(() => {
+  if (playerRef.current?.setVolume) {
+    playerRef.current.setVolume(videoVolume);
+  }
+}, [videoVolume]);
             // Drag and Drop Internal State
             const draggedTaskRef = useRef(null);
 
@@ -320,9 +364,14 @@
             const [newQuest, setNewQuest] = useState('');
             const [editingQuestId, setEditingQuestId] = useState(null);
 
-            const [activeTaskId, setActiveTaskId] = useState(null);
             const [timerMode, setTimerMode] = useState('focus'); 
-            const [timeLeft, setTimeLeft] = useState(1500); 
+            const [timerDurations, setTimerDurations] = useState({
+  focus: 1500,
+  shortBreak: 300,
+  longBreak: 900
+});
+const [timeLeft, setTimeLeft] = useState(timerDurations.focus); 
+            const [activeTaskId, setActiveTaskId] = useState(null);
             const [isActive, setIsActive] = useState(false);
             const [view, setView] = useState('tracker'); 
             const [isAlarmPlaying, setIsAlarmPlaying] = useState(false);
@@ -416,16 +465,16 @@
                     interval = setInterval(() => { 
                         setTimeLeft((prev) => {
                             if (prev <= 1) {
-                                setIsActive(false);
-                                startAlarm();
-                                return 0;
-                            }
+  setIsActive(false);
+  startAlarm();
+  return timerDurations[timerMode];
+}
                             return prev - 1;
                         }); 
-                    }, 1000);
+                    }, 1000); // Removed timeLeft from dependencies as it's updated functionally
                 }
                 return () => clearInterval(interval);
-            }, [isActive, timeLeft, startAlarm]);
+            }, [isActive, startAlarm, timerDurations, timerMode]);
 
             useEffect(() => {
                 if (timeLeft === 0 && !isActive && timerMode === 'focus' && activeTaskId) {
@@ -437,12 +486,24 @@
             }, [timeLeft, isActive, timerMode, activeTaskId]);
 
             const resetTimer = (mode) => {
-                stopAlarm();
-                setTimerMode(mode);
-                const times = { focus: 1500, shortBreak: 300, longBreak: 900 };
-                setTimeLeft(times[mode]); 
-                setIsActive(false);
-            };
+  stopAlarm();
+  setTimerMode(mode);
+  setTimeLeft(timerDurations[mode]);
+  setIsActive(false);
+};
+const updateTimerMinutes = (mode, minutes) => {
+  const safeMinutes = Math.max(1, Number(minutes) || 1);
+  const newSeconds = safeMinutes * 60;
+
+  setTimerDurations(prev => ({
+    ...prev,
+    [mode]: newSeconds
+  }));
+
+  if (timerMode === mode && !isActive) {
+    setTimeLeft(newSeconds);
+  }
+};
 
             const formatTime = (seconds) => {
                 const mins = Math.floor(seconds / 60);
@@ -549,6 +610,12 @@
                                 <h1 style={{ color: COLORS.timerPink }} className="text-2xl font-black flex items-center gap-2 mb-8">
                                     <span className="text-3xl">☁️</span> Focus Time!
                                 </h1>
+                                <button
+  onClick={toggleFullscreen}
+  className="w-full flex items-center gap-3 px-5 py-4 rounded-2xl text-rose-400 hover:bg-rose-50 transition-all"
+>
+  <Icon name="Maximize" /> <span className="font-bold">Fullscreen</span>
+</button>
                                 <nav className="space-y-3">
                                     <button onClick={() => setView('tracker')} className={`w-full flex items-center gap-3 px-5 py-4 rounded-2xl transition-all ${view === 'tracker' ? 'bg-[#DB2777] text-white shadow-lg' : 'text-rose-400 hover:bg-rose-50'}`}>
                                         <Icon name="ListTodo" /> <span className="font-bold">Task Tracker</span>
@@ -561,12 +628,30 @@
 
                             <div className="bg-white p-3 rounded-[2rem] shadow-xl border-4 border-white overflow-hidden">
                                 <div className="aspect-video w-full rounded-2xl overflow-hidden shadow-inner bg-slate-100">
-                                    <iframe width="100%" height="100%" src="https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1&origin=https://localhost" title="Lofi Music" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
+                                    <div id="youtube-player" className="w-full h-full"></div>
                                 </div>
                                 <div className="mt-3 px-2 text-center">
-                                    <p style={{ color: COLORS.timerPink }} className="font-bold text-xs">Now Playing: Lofi Beats 🎵</p>
-                                    <p className="text-[10px] text-rose-300 uppercase tracking-widest font-bold mt-1">Focus Mode: ON</p>
-                                </div>
+  <p style={{ color: COLORS.timerPink }} className="font-bold text-xs">
+    Now Playing: Lofi Beats 🎵
+  </p>
+  <p className="text-[10px] text-rose-300 uppercase tracking-widest font-bold mt-1">
+    Focus Mode: ON
+  </p>
+</div>
+
+<div className="mt-3 px-2">
+  <label className="text-[10px] text-rose-300 uppercase tracking-widest font-bold block mb-2">
+    Volume: {videoVolume}%
+  </label>
+  <input
+    type="range"
+    min="0"
+    max="100"
+    value={videoVolume}
+    onChange={(e) => setVideoVolume(Number(e.target.value))}
+    className="w-full accent-pink-600"
+  />
+</div>
                             </div>
 
                             <div className="bg-white/50 rounded-[2rem] shadow-sm overflow-hidden border border-white/60 transition-all">
@@ -626,6 +711,26 @@
                                             )}
                                         </div>
                                     </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-3xl mt-8">
+  {[
+    ['focus', 'Focus'],
+    ['shortBreak', 'Short Break'],
+    ['longBreak', 'Long Break']
+  ].map(([key, label]) => (
+    <div key={key} className="bg-rose-50/60 rounded-2xl p-4 text-left">
+      <label className="block text-xs font-black uppercase tracking-widest text-rose-400 mb-2">
+        {label} Minutes
+      </label>
+      <input
+        type="number"
+        min="1"
+        value={Math.floor(timerDurations[key] / 60)}
+        onChange={(e) => updateTimerMinutes(key, e.target.value)}
+        className="w-full px-4 py-3 rounded-xl border-2 border-rose-100 focus:outline-none focus:border-[#DB2777]"
+      />
+    </div>
+  ))}
+</div>
 
                                     {sections.map(section => (
                                         <TaskSection 
